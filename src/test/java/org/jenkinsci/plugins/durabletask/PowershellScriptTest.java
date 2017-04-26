@@ -149,7 +149,6 @@ public class PowershellScriptTest {
         boolean stdOut = false;
         outputEquality(cmd, msg, exitSuccess, stdOut);
     }
-    
 
     @Test public void echoEnvVar() throws Exception {
         String msg = "envvar=power$hell";

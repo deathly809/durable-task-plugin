@@ -85,6 +85,7 @@ public class WindowsBatchScriptTest {
         String log = baos.toString();
         System.err.print(log);
         assertTrue(log, log.contains("hello world"));
+        c.stop(ws,launcher);
         c.cleanup(ws);
     }
 
@@ -101,6 +102,7 @@ public class WindowsBatchScriptTest {
         assertEquals(Integer.valueOf(1), c.exitStatus(ws, launcher));
         String log = baos.toString();
         assertTrue(log, log.contains("hello world"));
+        c.stop(ws,launcher);
         c.cleanup(ws);
     }
 
@@ -116,6 +118,7 @@ public class WindowsBatchScriptTest {
         c.writeLog(ws, baos);
         assertEquals(0, c.exitStatus(ws, launcher).intValue());
         assertEquals("42\r\n", new String(c.getOutput(ws, launcher)));
+        c.stop(ws,launcher);
         c.cleanup(ws);
     }
 
@@ -129,6 +132,7 @@ public class WindowsBatchScriptTest {
         c.writeLog(ws,baos);
         assertEquals(0, c.exitStatus(ws, launcher).intValue());
         assertThat(baos.toString(), containsString("value=foo$$bar"));
+        c.stop(ws,launcher);
         c.cleanup(ws);
     }
 

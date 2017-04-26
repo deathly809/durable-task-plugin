@@ -88,9 +88,9 @@ public final class PowershellScript extends FileMonitoringTask {
 
         if (launcher.isUnix()) {
             // Open-Powershell does not support ExecutionPolicy
-            args.addAll(Arrays.asList("powershell", "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
+            args.addAll(Arrays.asList("powershell", "-version", "5", "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
         } else {
-            args.addAll(Arrays.asList("powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
+            args.addAll(Arrays.asList("powershell.exe", "-version", "5", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
         }
 
         Launcher.ProcStarter ps = launcher.launch().cmds(args).envs(escape(envVars)).pwd(ws).quiet(true);
