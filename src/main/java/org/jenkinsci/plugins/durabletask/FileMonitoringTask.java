@@ -37,6 +37,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.util.Collections;
 import java.util.Map;
 import java.util.TreeMap;
@@ -137,7 +139,9 @@ public abstract class FileMonitoringTask extends DurableTask {
                 long len = f.length();
                 if (len > lastLocation) {
                     RandomAccessFile raf = new RandomAccessFile(f, "r");
+                    
                     try {
+                        
                         raf.seek(lastLocation);
                         long toRead = len - lastLocation;
                         if (toRead > Integer.MAX_VALUE) { // >2Gb of output at once is unlikely
@@ -161,10 +165,23 @@ public abstract class FileMonitoringTask extends DurableTask {
         @Override public Integer exitStatus(FilePath workspace, Launcher launcher) throws IOException, InterruptedException {
             FilePath status = getResultFile(workspace);
             if (status.exists()) {
-                try {
-                    return Integer.parseInt(status.readToString().trim());
-                } catch (NumberFormatException x) {
-                    throw new IOException("corrupted content in " + status + ": " + x, x);
+                NumberFormatException exception = null;
+                final int maxRetries = 5;
+                int sleepTime = 100;
+                int sleepScale = 2;
+                for(int i = 0; i < maxRetries; ++i) {
+                    try {
+                        return Integer.parseInt(status.readToString().trim());
+                    } catch (NumberFormatException x) {
+                        exception = x;
+                        Thread.sleep(sleepTime);
+                        sleepTime *= sleepScale;
+                    }
+                }
+                if( exception != null ) {
+                    throw new IOException("corrupted content in " + status + ": " + exception, exception);
+                } else {
+                    throw new IOException("could not read exit status from file");
                 }
             } else {
                 return null;
@@ -181,6 +198,7 @@ public abstract class FileMonitoringTask extends DurableTask {
         }
 
         @Override public void cleanup(FilePath workspace) throws IOException, InterruptedException {
+            Thread.sleep(300);
             controlDir(workspace).deleteRecursive();
         }
 

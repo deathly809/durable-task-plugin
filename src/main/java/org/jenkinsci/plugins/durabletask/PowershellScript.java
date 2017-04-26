@@ -45,6 +45,7 @@ import org.kohsuke.stapler.DataBoundConstructor;
 public final class PowershellScript extends FileMonitoringTask {
     private final String script;
     private boolean capturingOutput;
+    private String encoding = "ASCII";
 
     @DataBoundConstructor public PowershellScript(String script) {
         this.script = script;
@@ -66,14 +67,16 @@ public final class PowershellScript extends FileMonitoringTask {
         String cmd;
         if (capturingOutput) {
             // Using redirection in PowerShell produces extra newlines in output, so I am using [io.file]::WriteAllText to prevent corrupted output of exit code
-            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"ASCII\"; & \"%s\" *> \"%s\" 2> \"%s\"; $LastExitCode > \"%s\"; $error > \"%s\";", 
+            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"%s\"; & \"%s\" *> \"%s\" 2> \"%s\"; $LastExitCode > \"%s\"; $error > \"%s\";", 
+                encoding,
                 quote(c.getPowershellMainFile(ws)),
                 quote(c.getOutputFile(ws)),
                 quote(c.getLogFile(ws)),
                 quote(c.getResultFile(ws)),
                 quote(c.getLogFile(ws)));
         } else {
-            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"ASCII\"; & \"%s\" *> \"%s\"; $LastExitCode > \"%s\";",
+            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"%s\"; & \"%s\" *> \"%s\"; $LastExitCode > \"%s\";",
+                encoding,
                 quote(c.getPowershellMainFile(ws)),
                 quote(c.getLogFile(ws)),
                 quote(c.getResultFile(ws)));
