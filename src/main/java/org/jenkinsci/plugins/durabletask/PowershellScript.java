@@ -46,6 +46,7 @@ public final class PowershellScript extends FileMonitoringTask {
     private final String script;
     private boolean capturingOutput;
     private String encoding = "ASCII";
+    private String version = "4";
 
     @DataBoundConstructor public PowershellScript(String script) {
         this.script = script;
@@ -88,9 +89,9 @@ public final class PowershellScript extends FileMonitoringTask {
 
         if (launcher.isUnix()) {
             // Open-Powershell does not support ExecutionPolicy
-            args.addAll(Arrays.asList("powershell", "-version", "5", "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
+            args.addAll(Arrays.asList("powershell", "-version", version, "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
         } else {
-            args.addAll(Arrays.asList("powershell.exe", "-version", "5", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
+            args.addAll(Arrays.asList("powershell.exe", "-version", version, "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
         }
 
         Launcher.ProcStarter ps = launcher.launch().cmds(args).envs(escape(envVars)).pwd(ws).quiet(true);
