@@ -79,7 +79,7 @@ public final class PowershellScript extends FileMonitoringTask {
 
             stderrStreams.add(outputFile);
             stderrStreams.add(logFile);
-            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"UTF8\"; & \"%s\"; Write-Error $error", quote(c.getPowershellMainFile(ws)));
+            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"UTF8\"; & \"%s\"; Write-Error ($error -join [Environment]::NewLine)", quote(c.getPowershellMainFile(ws)));
         } else {
             stdoutStreams.add(logFile);
             stderrStreams.add(logFile);
