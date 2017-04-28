@@ -29,6 +29,7 @@ import hudson.EnvVars;
 import hudson.Extension;
 import hudson.FilePath;
 import hudson.Plugin;
+import hudson.Proc;
 import hudson.Launcher;
 import jenkins.model.Jenkins;
 import java.util.ArrayList;
@@ -37,6 +38,8 @@ import java.util.List;
 import java.io.File;
 import hudson.model.TaskListener;
 import java.io.IOException;
+import java.io.OutputStream;
+
 import org.kohsuke.stapler.DataBoundConstructor;
 
 /**
@@ -45,8 +48,6 @@ import org.kohsuke.stapler.DataBoundConstructor;
 public final class PowershellScript extends FileMonitoringTask {
     private final String script;
     private boolean capturingOutput;
-    private String encoding = "ASCII";
-    private String version = "5";
 
     @DataBoundConstructor public PowershellScript(String script) {
         this.script = script;
@@ -64,23 +65,25 @@ public final class PowershellScript extends FileMonitoringTask {
     @Override protected FileMonitoringController doLaunch(FilePath ws, Launcher launcher, TaskListener listener, EnvVars envVars) throws IOException, InterruptedException {
         List<String> args = new ArrayList<String>();
         PowershellController c = new PowershellController(ws);
+
+
+        OutputStream outputFile = c.getOutputFile(ws).write();
+        OutputStream logFile    = c.getLogFile(ws).write();
+        
+        List<OutputStream> stderrStreams = new ArrayList<OutputStream>();
+        List<OutputStream> stdoutStreams = new ArrayList<OutputStream>();
         
         String cmd;
         if (capturingOutput) {
-            // Using redirection in PowerShell produces extra newlines in output, so I am using [io.file]::WriteAllText to prevent corrupted output of exit code
-            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"%s\"; & \"%s\" *> \"%s\" 2> \"%s\"; $LastExitCode > \"%s\"; $error > \"%s\";", 
-                encoding,
-                quote(c.getPowershellMainFile(ws)),
-                quote(c.getOutputFile(ws)),
-                quote(c.getLogFile(ws)),
-                quote(c.getResultFile(ws)),
-                quote(c.getLogFile(ws)));
+            stdoutStreams.add(outputFile);
+
+            stderrStreams.add(outputFile);
+            stderrStreams.add(logFile);
+            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"UTF8\"; & \"%s\"; Write-Error $error", quote(c.getPowershellMainFile(ws)));
         } else {
-            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"%s\"; & \"%s\" *> \"%s\"; $LastExitCode > \"%s\";",
-                encoding,
-                quote(c.getPowershellMainFile(ws)),
-                quote(c.getLogFile(ws)),
-                quote(c.getResultFile(ws)));
+            stdoutStreams.add(logFile);
+            stderrStreams.add(logFile);
+            cmd = String.format("$PSDefaultParameterValues[\"*:Encoding\"] = \"UTF8\"; & \"%s\";", quote(c.getPowershellMainFile(ws)));
         }
 
         // Write the script and execution wrapper to powershell files in the workspace
@@ -89,15 +92,21 @@ public final class PowershellScript extends FileMonitoringTask {
 
         if (launcher.isUnix()) {
             // Open-Powershell does not support ExecutionPolicy
-            args.addAll(Arrays.asList("powershell", "-Version", version, "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
+            args.addAll(Arrays.asList("powershell", "-NonInteractive", "-File", c.getPowershellWrapperFile(ws).getRemote()));
         } else {
-            args.addAll(Arrays.asList("powershell.exe", "-Version", version, "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
+            args.addAll(Arrays.asList("powershell.exe", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", c.getPowershellWrapperFile(ws).getRemote()));    
         }
 
         Launcher.ProcStarter ps = launcher.launch().cmds(args).envs(escape(envVars)).pwd(ws).quiet(true);
+
+        // redirect output
+        OutputStreamMultiplexer stdout = new OutputStreamMultiplexer(stdoutStreams);
+        OutputStreamMultiplexer stderr = new OutputStreamMultiplexer(stderrStreams);
+        ps.stderr(stdout);
+        ps.stderr(stderr);
+
         listener.getLogger().println("[" + ws.getRemote().replaceFirst("^.+\\\\", "") + "] Running PowerShell script");
-        ps.readStdout().readStderr();
-        ps.start();
+        c.addProcess(ps.start());
         return c;
     }
     
@@ -105,7 +114,10 @@ public final class PowershellScript extends FileMonitoringTask {
         return f.getRemote().replace("%", "%%");
     }
 
-    private static final class PowershellController extends FileMonitoringController {
+    public static final class PowershellController extends FileMonitoringController {
+
+        Proc process;
+
         private PowershellController(FilePath ws) throws IOException, InterruptedException {
             super(ws);
         }
@@ -118,6 +130,14 @@ public final class PowershellScript extends FileMonitoringTask {
             return controlDir(ws).child("powershellWrapper.ps1");
         }
 
+        protected void addProcess(Proc theProcess) {
+            process = theProcess;
+        }
+
+        public Proc getProcess() {
+            return process;
+        }
+
         private static final long serialVersionUID = 1L;
     }
 
@@ -127,6 +147,52 @@ public final class PowershellScript extends FileMonitoringTask {
             return Messages.PowershellScript_powershell();
         }
 
+    }
+
+    private static class OutputStreamMultiplexer extends OutputStream {
+
+        private ArrayList<OutputStream> streams;
+
+        public OutputStreamMultiplexer(List<OutputStream> outStreams) {
+            this.streams = new ArrayList<OutputStream>(outStreams);
+        }
+
+
+        @Override
+        public void close() throws IOException{
+            for(OutputStream stream : streams) {
+                stream.close();
+            }
+            streams.clear();
+        }
+
+        @Override
+        public void flush() throws IOException {
+            for(OutputStream stream : streams) {
+                stream.flush();
+            }
+        }
+
+        @Override
+        public void write(byte[] b) throws IOException {
+            for(OutputStream stream : streams) {
+                stream.write(b);
+            }
+        }
+
+        @Override
+        public void write(byte[] b, int off, int len) throws IOException {
+            for(OutputStream stream : streams) {
+                stream.write(b, off, len);
+            }
+        }
+
+        @Override
+        public void write(int data) throws IOException {
+            for(OutputStream stream : streams) {
+                stream.write(data);
+            }
+        }
     }
 
 }

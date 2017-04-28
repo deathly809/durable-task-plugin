@@ -27,6 +27,7 @@ package org.jenkinsci.plugins.durabletask;
 import hudson.EnvVars;
 import hudson.FilePath;
 import hudson.Launcher;
+import hudson.Proc;
 import hudson.util.StreamTaskListener;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
@@ -36,9 +37,7 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 import org.junit.Assume;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Rule;
-import org.jvnet.hudson.test.Issue;
 import org.jvnet.hudson.test.JenkinsRule;
 import java.util.Properties;
 
@@ -48,7 +47,6 @@ public class PowershellScriptTest {
     private StreamTaskListener listener;
     private FilePath ws;
     private Launcher launcher;
-    private String encoding = "US-ASCII";
 
     @Before public void vars() {
         listener = StreamTaskListener.fromStdout();
@@ -69,93 +67,94 @@ public class PowershellScriptTest {
         Assume.assumeTrue("This test should only run if powershell is available", powershellExists == true);
     }
 
-    private void outputEquality(String cmd, String cmp, boolean exitSuccess, boolean stdOut ) throws Exception {
-        outputEquality(cmd, cmp, exitSuccess, stdOut, new EnvVars());
-    }
-
-    private void outputEquality(String cmd, String cmp, boolean exitSuccess, boolean stdOut, EnvVars env) throws Exception {
-        DurableTask task = new PowershellScript(cmd);
-        if(stdOut) {
-            task.captureOutput();
-        }
-
-        Controller c = task.launch(env, ws, launcher, listener);
+    @Test public void explicitExit() throws Exception {
+        Controller controller = new PowershellScript("Write-Output \"Hello, World!\"; exit 1;").launch(new EnvVars(), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        TeeOutputStream tos = new TeeOutputStream(baos, System.err);
         
-        ByteArrayOutputStream errorBaos = new ByteArrayOutputStream();
-        TeeOutputStream tos = new TeeOutputStream(errorBaos, System.err);
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertEquals(1, exitStatus);
 
-        while (c.exitStatus(ws, launcher) == null) {
-            c.writeLog(ws, tos);
-            Thread.sleep(100);
-        }
         c.writeLog(ws, tos);
 
-        if(exitSuccess) {
-            assertEquals(Integer.valueOf(0), c.exitStatus(ws, launcher));
-        } else {
-            assertTrue(c.exitStatus(ws, launcher).intValue() != 0);
-        }
-
-        if(stdOut) {
-            String output = new String(c.getOutput(ws, launcher),encoding).trim();
-            assertEquals(output, cmp);
-        } else {
-            String log = errorBaos.toString(encoding);
-            assertTrue(log, log.contains(cmp));
-        }
-
-        // You must call stop or cleanup can fail
-        c.stop(ws, launcher);
+        String log = baos.toString();
+        assertTrue(log, log.contains("Hello, World!"));
         c.cleanup(ws);
-    }
-
-    
-    @Test public void verbose() throws Exception {
-        String msg = "Hello, World!";
-        String cmd = String.format("$VerbosePreference = \"Continue\"; Write-Verbose \"%s\"", msg);
-        boolean exitSuccess = true;
-        boolean stdOut = true;
-        outputEquality(cmd, msg, exitSuccess, stdOut);
-    }
-
-    @Test public void explicitExit() throws Exception {
-        String msg = "Hello, World!";
-        String cmd = String.format("Write-Output \"%s\"; exit 1;", msg);
-        boolean exitSuccess = false;
-        boolean stdOut = true;
-        outputEquality(cmd, msg, exitSuccess, stdOut);
     }
     
     @Test public void implicitExit() throws Exception {
-        String msg = "Success!";
-        String cmd = String.format("Write-Output \"%s\";", msg);
-        boolean exitSuccess = true;
-        boolean stdOut = false;
-        outputEquality(cmd, msg , exitSuccess, stdOut);
+        Controller controller = new PowershellScript("Write-Output \"Success!\";").launch(new EnvVars(), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        TeeOutputStream tos = new TeeOutputStream(baos, System.err);
+                
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertEquals(0, exitStatus);
+
+        c.writeLog(ws, tos);
+
+        String log = baos.toString();
+        assertTrue(log, log.contains("Success!"));
+        c.cleanup(ws);
     }
     
     @Test public void implicitError() throws Exception {
-        String msg = "";
-        String cmd = "MyBogus-Cmdlet";
-        boolean exitSuccess = false;
-        boolean stdOut = false;
-        outputEquality(cmd, msg , exitSuccess, stdOut);
+        Controller controller = new PowershellScript("MyBogus-Cmdlet").launch(new EnvVars(), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertTrue(exitStatus != 0);
+        c.cleanup(ws);
     }
     
     @Test public void explicitError() throws Exception {
-        String msg = "explicit error";
-        String cmd = String.format("Write-Output \"Hello, World!\"; throw \"%s\";", msg);
-        boolean exitSuccess = false;
-        boolean stdOut = false;
-        outputEquality(cmd, msg, exitSuccess, stdOut);
+        DurableTask task = new PowershellScript("Write-Output \"Hello, World!\"; throw \"explicit error\";");
+        task.captureOutput();
+        Controller controller = task.launch(new EnvVars(), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+        
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertEquals(0, exitStatus);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        c.writeLog(ws, baos);
+        assertThat(baos.toString(), containsString("explicit error"));
+        c.cleanup(ws);
+    }
+    
+    @Test public void verbose() throws Exception {
+        DurableTask task = new PowershellScript("$VerbosePreference = \"Continue\"; Write-Verbose \"Hello, World!\"");
+        task.captureOutput();
+        Controller controller = task.launch(new EnvVars(), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+        
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertEquals(0, exitStatus);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        c.writeLog(ws, baos);
+        assertThat(new String(c.getOutput(ws, launcher)), containsString("Hello, World!"));
+        c.cleanup(ws);
     }
 
     @Test public void echoEnvVar() throws Exception {
-        String msg = "envvar=power$hell";
-        String cmd = "echo envvar=$env:MYVAR";
-        boolean exitSuccess = true;
-        boolean stdOut = true;
-        outputEquality(cmd, msg, exitSuccess, stdOut, new EnvVars("MYVAR", "power$hell"));
+        Controller controller = new PowershellScript("echo envvar=$env:MYVAR").launch(new EnvVars("MYVAR", "power$hell"), ws, launcher, listener);
+        PowershellScript.PowershellController c = (PowershellScript.PowershellController)controller;
+
+        Proc p = c.getProcess();
+        int exitStatus = p.join();
+        assertEquals(0, exitStatus);
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        c.writeLog(ws,baos);
+        assertThat(baos.toString(), containsString("envvar=power$hell"));
+
+        c.cleanup(ws);
     }
 
 }
